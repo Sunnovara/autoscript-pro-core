@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d.get\\('packages',{}\\)\\), 'packages'\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k\\) for k in d.get\\('packages',{}\\) if 'vite' in k.lower\\(\\)]\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); v=[k for k in d.get\\('packages',{}\\) if 'vite' in k.lower\\(\\)]; print\\(len\\(v\\), 'vite entries'\\); [print\\(k\\) for k in v[:10]]\")",
+      "Bash(node_modules/.bin/vite build *)"
+    ]
+  }
+}

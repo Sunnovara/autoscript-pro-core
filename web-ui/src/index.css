@@ -1,0 +1,47 @@
+@import "@fontsource/inter";
+@import "tailwindcss";
+
+:root {
+  --background: 222 47% 11%;
+  --surface: 222 47% 14%;
+  --surface-2: 222 47% 17%;
+  --border: 222 47% 22%;
+  --text-primary: 210 40% 98%;
+  --text-secondary: 215 20% 65%;
+  --accent: 262 83% 70%;
+  --accent-glow: 262 83% 70%;
+  --green: 142 76% 55%;
+  --red: 0 84% 60%;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: "Inter", sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--text-primary));
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--text-secondary));
+}

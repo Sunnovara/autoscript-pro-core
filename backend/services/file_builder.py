@@ -1,0 +1,426 @@
+import re
+import logging
+from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# README generation
+# ---------------------------------------------------------------------------
+
+def create_readme(user_request: str, region: str, generated_files: Dict[str, str], provider: str = "aws") -> str:
+    """Create README.md with comprehensive info about the generated Terraform code"""
+    provider_name = "AWS" if provider == "aws" else "Azure"
+    provider_docs = (
+        "https://registry.terraform.io/providers/hashicorp/aws/latest/docs"
+        if provider == "aws"
+        else "https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs"
+    )
+
+    main_tf = generated_files.get('main.tf', '')
+    resource_types = set()
+    resource_details = []
+
+    for line in main_tf.split('\n'):
+        if line.strip().startswith('resource '):
+            parts = line.strip().split('"')
+            if len(parts) >= 4:
+                resource_types.add(parts[1])
+                resource_details.append(f"- **{parts[1]}** (`{parts[3]}`)")
+
+    variables_tf = generated_files.get('variables.tf', '')
+    variables_info = []
+    current_var = None
+    for line in variables_tf.split('\n'):
+        line = line.strip()
+        if line.startswith('variable '):
+            parts = line.split('"')
+            if len(parts) >= 2:
+                current_var = parts[1]
+        elif line.startswith('description') and current_var:
+            desc_parts = line.split('=', 1)
+            if len(desc_parts) > 1:
+                desc = desc_parts[1].strip().strip('"').strip("'")
+                variables_info.append(f"- **{current_var}**: {desc}")
+                current_var = None
+
+    outputs_tf = generated_files.get('outputs.tf', '')
+    outputs_info = []
+    current_output = None
+    for line in outputs_tf.split('\n'):
+        line = line.strip()
+        if line.startswith('output '):
+            parts = line.split('"')
+            if len(parts) >= 2:
+                current_output = parts[1]
+        elif line.startswith('description') and current_output:
+            desc_parts = line.split('=', 1)
+            if len(desc_parts) > 1:
+                desc = desc_parts[1].strip().strip('"').strip("'")
+                outputs_info.append(f"- **{current_output}**: {desc}")
+                current_output = None
+
+    readme = f"""# Terraform Infrastructure as Code
+
+## Project Overview
+This Terraform configuration creates {provider_name} infrastructure based on the following request:
+
+> **{user_request}**
+
+**Target Region:** `{region}`
+**Generated:** {len(generated_files)} files
+**Resources:** {len(resource_types)} {provider_name} resource types
+
+---
+
+## {provider_name} Resources
+
+"""
+    if resource_details:
+        for resource in sorted(resource_details):
+            readme += f"{resource}\n"
+    else:
+        readme += "- No resources detected in main.tf\n"
+
+    readme += "\n---\n\n## Project Structure\n\n"
+    file_order = ['main.tf', 'variables.tf', 'outputs.tf', 'provider.tf', 'terraform.tfvars']
+    for filename in file_order:
+        if filename in generated_files:
+            readme += f"### `{filename}`\n{get_file_description(filename, provider)}\n\n"
+    for filename in sorted(generated_files.keys()):
+        if filename not in file_order and filename != "README.md":
+            readme += f"### `{filename}`\n{get_file_description(filename, provider)}\n\n"
+
+    readme += "---\n\n## Configuration Variables\n\n"
+    if variables_info:
+        readme += "The following variables can be customized in `terraform.tfvars`:\n\n"
+        for v in variables_info:
+            readme += f"{v}\n"
+    else:
+        readme += "No configurable variables found.\n"
+
+    readme += "\n---\n\n## Outputs\n\n"
+    if outputs_info:
+        readme += "After deployment, the following outputs will be available:\n\n"
+        for o in outputs_info:
+            readme += f"{o}\n"
+    else:
+        readme += "No outputs defined.\n"
+
+    readme += f"""
+---
+
+## Quick Start
+
+### Prerequisites
+- **Terraform** v1.0.0+ ([Download](https://www.terraform.io/downloads.html))
+- **{provider_name} CLI** configured with appropriate credentials
+
+### Deployment
+
+```bash
+# 1. Configure variables
+nano terraform.tfvars
+
+# 2. Initialize
+terraform init
+
+# 3. Review plan
+terraform plan
+
+# 4. Deploy
+terraform apply
+
+# 5. View outputs
+terraform output
+```
+
+### Cleanup
+```bash
+terraform destroy
+```
+
+---
+
+## Security Best Practices
+
+- Never commit {provider_name} credentials to version control
+- Use environment variables or `.tfvars` files for sensitive data
+- Follow principle of least privilege for {provider_name} access
+- Enable encryption for sensitive resources
+
+---
+
+## Additional Resources
+
+- [Terraform {provider_name} Provider Documentation]({provider_docs})
+- [Terraform Best Practices](https://www.terraform.io/docs/cloud/guides/recommended-practices/index.html)
+
+---
+
+*Generated by AutoScript-Pro Terraform AI Agent — {provider_name} {region}*
+"""
+    return readme
+
+
+def get_file_description(filename: str, provider: str = "aws") -> str:
+    """Return a short description for each standard Terraform file"""
+    provider_name = "AWS" if provider == "aws" else "Azure"
+    descriptions = {
+        "main.tf": f"**Core Infrastructure Definition** — Contains all {provider_name} resource definitions, dependencies, and relationships.",
+        "variables.tf": "**Input Variables Declaration** — Defines all configurable parameters. Customize values in terraform.tfvars.",
+        "outputs.tf": "**Output Values Definition** — Specifies values exposed after deployment (IDs, URLs, connection strings).",
+        "provider.tf": f"**Provider Configuration** — Configures the {provider_name} provider: region, authentication, and options.",
+        "terraform.tfvars": "**Variable Values** — Actual values for the variables in variables.tf. Edit to customize your deployment.",
+        "plan-output": "**Terraform Plan Results** — Execution plan showing what actions Terraform will take.",
+        "terraform.tfstate": "**Terraform State File** — Tracks deployed infrastructure. Automatically managed by Terraform workflows.",
+        ".gitignore": "**Git Ignore Configuration** — Prevents committing sensitive or generated files.",
+        ".github/workflows/terraform-plan.yml": "**CI/CD Plan Workflow** — Runs `terraform plan` via GitHub Actions.",
+        ".github/workflows/terraform-apply.yml": "**CI/CD Deploy Workflow** — Deploys infrastructure via GitHub Actions.",
+        ".github/workflows/terraform-destroy.yml": "**CI/CD Destroy Workflow** — Safely destroys infrastructure with multiple safety checks.",
+    }
+    return descriptions.get(filename, "**Additional Configuration** — Supporting file for the Terraform deployment.")
+
+
+# ---------------------------------------------------------------------------
+# terraform.tfvars generation
+# ---------------------------------------------------------------------------
+
+def generate_tfvar_entry(var_name: str, description: str, var_type: str, default_value: Optional[str]) -> str:
+    """Generate a single tfvars entry with a sensible default"""
+    entry = f"# {description}\n" if description else ""
+
+    if default_value and default_value != 'null':
+        entry += f"{var_name} = {default_value}\n\n"
+    else:
+        if 'region' in var_name.lower():
+            entry += f'{var_name} = "us-east-1"\n\n'
+        elif 'name' in var_name.lower() or 'bucket' in var_name.lower():
+            entry += f'{var_name} = "my-{var_name.replace("_", "-")}"\n\n'
+        elif 'environment' in var_name.lower():
+            entry += f'{var_name} = "dev"\n\n'
+        elif 'instance_type' in var_name.lower():
+            entry += f'{var_name} = "t3.micro"\n\n'
+        elif 'string' in var_type:
+            entry += f'{var_name} = "change-me"\n\n'
+        elif 'number' in var_type:
+            entry += f'{var_name} = 1\n\n'
+        elif 'bool' in var_type:
+            entry += f'{var_name} = true\n\n'
+        elif 'list' in var_type:
+            entry += f'{var_name} = []\n\n'
+        elif 'map' in var_type:
+            entry += f'{var_name} = {{}}\n\n'
+        else:
+            entry += f'{var_name} = "change-me"\n\n'
+
+    return entry
+
+
+def _parse_variables_tf(variables_tf: str):
+    """Yields (name, description, type, default) tuples from a variables.tf string"""
+    current_var = None
+    var_description = ""
+    var_type = ""
+    var_default = None
+
+    for line in variables_tf.split('\n'):
+        line = line.strip()
+        if line.startswith('variable "'):
+            if current_var:
+                yield current_var, var_description, var_type, var_default
+            current_var = line.split('"')[1]
+            var_description = ""
+            var_type = ""
+            var_default = None
+        elif current_var:
+            if line.startswith('description'):
+                var_description = line.split('=')[1].strip().strip('"')
+            elif line.startswith('type'):
+                var_type = line.split('=')[1].strip()
+            elif line.startswith('default'):
+                var_default = line.split('=', 1)[1].strip()
+
+    if current_var:
+        yield current_var, var_description, var_type, var_default
+
+
+def create_terraform_tfvars(generated_files: Dict[str, str]) -> str:
+    """Create terraform.tfvars from variables declared in variables.tf"""
+    variables_tf = generated_files.get('variables.tf', '')
+    content = "# Terraform Variables\n# Edit these values according to your requirements\n\n"
+
+    try:
+        for name, desc, vtype, default in _parse_variables_tf(variables_tf):
+            content += generate_tfvar_entry(name, desc, vtype, default)
+    except Exception as e:
+        logger.error(f"Error creating tfvars: {e}")
+        content += "\n# Error parsing variables.tf — please add your variables manually\n"
+
+    return content
+
+
+def create_terraform_tfvars_with_preservation(generated_files: Dict[str, str], existing_generated_files: Dict[str, str]) -> str:
+    """Create terraform.tfvars preserving values from the previous tfvars where possible"""
+    existing_values = {}
+    existing_tfvars = existing_generated_files.get("terraform.tfvars", "")
+    for line in existing_tfvars.split('\n'):
+        line = line.strip()
+        if '=' in line and not line.startswith('#'):
+            try:
+                key, value = line.split('=', 1)
+                existing_values[key.strip()] = value.strip()
+            except Exception:
+                continue
+
+    variables_tf = generated_files.get('variables.tf', '')
+    content = "# Terraform Variables\n# Edit these values according to your requirements\n\n"
+
+    try:
+        for name, desc, vtype, default in _parse_variables_tf(variables_tf):
+            if name in existing_values:
+                content += f"# {desc}\n" if desc else ""
+                content += f"{name} = {existing_values[name]}\n\n"
+            else:
+                content += generate_tfvar_entry(name, desc, vtype, default)
+    except Exception as e:
+        logger.error(f"Error creating tfvars with preservation: {e}")
+        return create_terraform_tfvars(generated_files)
+
+    return content
+
+
+def extract_value_updates_from_request(modification_request: str, modified_files: Dict[str, str]) -> Dict[str, str]:
+    """Extract specific variable value changes mentioned in a modification request"""
+    value_updates = {}
+    request_lower = modification_request.lower()
+    variables_tf = modified_files.get('variables.tf', '')
+
+    patterns = [
+        (r'use\s+bucket\s+name\s+is\s+this:\s*([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'bucket\s+name\s+is\s+this:\s*([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'modify\s+the\s+existing\s+bucket\s+name\s+with\s+([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'bucket\s+name\s+to\s+([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'change.*?bucket.*?name.*?to\s+([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'update.*?bucket.*?name.*?to\s+([a-zA-Z0-9][\w-]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'modify\s+the\s+(\w+)\s+bucket\s+name\s+with\s+this:\s*([^\s]+)', lambda m: ("bucket_name", f'"{m.group(2)}"')),
+        (r'modify\s+the\s+existing\s+bucket\s+name:\s*([^\s]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+        (r'change\s+(\w+)\s+name\s+to\s+["\']([^"\']+)["\']', lambda m: (f"{m.group(1)}_name", f'"{m.group(2)}"')),
+        (r'change\s+(\w+)\s+name\s+to\s+([^\s]+)', lambda m: (f"{m.group(1)}_name", f'"{m.group(2)}"')),
+        (r'set\s+(\w+)\s+name\s+to\s+([^\s]+)', lambda m: (f"{m.group(1)}_name", f'"{m.group(2)}"')),
+        (r'update\s+(\w+)\s+to\s+["\']([^"\']+)["\']', lambda m: (m.group(1), f'"{m.group(2)}"')),
+        (r'update\s+(\w+)\s+to\s+([^\s]+)', lambda m: (m.group(1), f'"{m.group(2)}"')),
+        (r'change\s+environment\s+to\s+(\w+)', lambda m: ("environment", f'"{m.group(1)}"')),
+        (r'set\s+region\s+to\s+([\w-]+)', lambda m: ("region", f'"{m.group(1)}"')),
+        (r'bucket\s+name:\s*([^\s]+)', lambda m: ("bucket_name", f'"{m.group(1)}"')),
+    ]
+
+    found_variables: set = set()
+    for pattern, extractor in patterns:
+        for match in re.finditer(pattern, request_lower):
+            try:
+                var_name, var_value = extractor(match)
+                if var_name in found_variables:
+                    continue
+                if f'variable "{var_name}"' in variables_tf:
+                    value_updates[var_name] = var_value
+                    found_variables.add(var_name)
+                    logger.info(f"Extracted value update: {var_name} = {var_value}")
+            except Exception as e:
+                logger.warning(f"Error extracting value from pattern: {e}")
+
+    return value_updates
+
+
+def create_terraform_tfvars_with_updates(
+    generated_files: Dict[str, str],
+    value_updates: Dict[str, str],
+    existing_generated_files: Dict[str, str]
+) -> str:
+    """Create terraform.tfvars applying specific value updates on top of existing values"""
+    existing_values = {}
+    existing_tfvars = existing_generated_files.get("terraform.tfvars", "")
+    for line in existing_tfvars.split('\n'):
+        line = line.strip()
+        if '=' in line and not line.startswith('#'):
+            try:
+                key, value = line.split('=', 1)
+                existing_values[key.strip()] = value.strip()
+            except Exception:
+                continue
+
+    for var_name, new_value in value_updates.items():
+        existing_values[var_name] = new_value
+
+    variables_tf = generated_files.get('variables.tf', '')
+    content = "# Terraform Variables\n# Edit these values according to your requirements\n\n"
+
+    try:
+        for name, desc, vtype, default in _parse_variables_tf(variables_tf):
+            if name in existing_values:
+                content += f"# {desc}\n" if desc else ""
+                content += f"{name} = {existing_values[name]}\n\n"
+            else:
+                content += generate_tfvar_entry(name, desc, vtype, default)
+    except Exception as e:
+        logger.error(f"Error creating tfvars with updates: {e}")
+        return create_terraform_tfvars(generated_files)
+
+    return content
+
+
+# ---------------------------------------------------------------------------
+# .gitignore generation
+# ---------------------------------------------------------------------------
+
+def create_terraform_gitignore() -> str:
+    """Return a .gitignore configured for Terraform projects with state management"""
+    return """# Terraform .gitignore
+# Allows state files and lock file for workflow state management
+
+# Local .terraform directories — exclude large provider binaries but allow lock file
+.terraform/
+!.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Dependency directories
+node_modules/
+
+# dotenv environment variables files
+.env
+.env.test
+.env.production
+"""
