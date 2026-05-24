@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "NODE_ENV=development vite build /Users/siddharthhiriyan/Documents/Project/AutoScript-Pro/web-ui",
+    "build": "NODE_ENV=development vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
